@@ -19,14 +19,19 @@ function renderBulletList(blob: string | null) {
   if (!blob) return null
   const lines = blob
     .split(/\r?\n/)
-    .map((s) => s.replace(/^\s*[①②③④👉🟡⚠️💡]/, '').trim())
+    .map((s) => s.replace(/^\s*[①②③④👉🟡⚠️💡•·]/, '').trim())
     .filter((s) => s.length > 0)
+    .filter((s) => !/^可能的原因.*概率.*排序.*[:：]?$/.test(s))
+  if (lines.length === 0) return null
   return (
-    <ul className="mt-3 space-y-1.5 list-none pl-0 text-sm">
-      {lines.map((l, i) => (
-        <Bullet key={i} text={l} />
-      ))}
-    </ul>
+    <div className="mt-2">
+      <div className="mb-1.5 text-xs font-semibold text-red-700">可能的原因：</div>
+      <ul className="space-y-1.5 list-none pl-0 text-sm">
+        {lines.map((l, i) => (
+          <Bullet key={i} text={l} />
+        ))}
+      </ul>
+    </div>
   )
 }
 
