@@ -9,8 +9,11 @@ type View = 'email' | 'signup' | 'magic'
 export default function LoginForm() {
   const router = useRouter()
   const supabase = createClient()
-  const [view, setView] = useState<View>('email')
 
+  const [origin, setOrigin] = useState<string>('http://localhost:3000')
+  const isBrowser = typeof window !== 'undefined'
+
+  const [view, setView] = useState<View>('email')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [username, setUsername] = useState('')
@@ -18,6 +21,10 @@ export default function LoginForm() {
   const [error, setError] = useState<string | null>(null)
   const [errorHint, setErrorHint] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
+
+  if (isBrowser && window.location.origin !== origin) {
+    setTimeout(() => setOrigin(window.location.origin), 0)
+  }
 
   const resetState = () => {
     setError(null)
@@ -28,18 +35,19 @@ export default function LoginForm() {
   const formatError = (err: any) => {
     const msg = err?.message || String(err || '未知错误')
     const lower = msg.toLowerCase()
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
     let hint: string | null = null
 
     if (/provider.*not.*enabled|unsupported provider/i.test(lower)) {
-      hint = '👉 请去 Supabase → Authentication → Providers → 找到 GitHub，打开 Enabled 开关，填入 Client ID + Secret，点底部 Save'
+      hint = '👉 请去 Supabase → Authentication → Providers → 找到 GitHub：\n① Enabled 开关拨到 ON（蓝色）\n② 填 Client ID + Client Secret\n③ 滚到底部点 Save'
     } else if (/email not confirmed|email_confirmation/i.test(lower)) {
       hint = '👉 解决办法（任选其一）：\n① 去你的邮箱点 Supabase 验证邮件里的链接\n② 或去 Supabase → Authentication → Providers → Email，关闭 "Confirm email" 开关并保存'
     } else if (/invalid login|invalid credentials|password/i.test(lower)) {
-      hint = '👉 可能是：密码错了 / 邮箱还没注册 / 邮箱大小写不匹配'
+      hint = '👉 可能的原因（按概率排序）：\n① 这个账号是「免密链接」注册的，根本没设置密码！→ 请切到上方「免密链接」Tab 重发邮件登录\n② 密码输错了 / 大小写不对\n③ 这个邮箱还没注册过 → 切到「注册账号」Tab 创建\n④ 邮箱大小写/前后空格不匹配（系统已自动 trim，请换小写再试）'
     } else if (/user already registered|already exists|unique/i.test(lower)) {
-      hint = '👉 这个邮箱已经注册过了，请直接用邮箱登录，不要重复注册'
+      hint = '👉 这个邮箱已经注册过了，请直接切到「邮箱登录」Tab 登录，不要重复注册；\n   如果当初是用「免密链接」注册的，请切到「免密链接」Tab 登录'
     } else if (/redirect.*uri|redirect_uri|url configuration/i.test(lower)) {
-      hint = '👉 请去 Supabase → Authentication → URL Configuration：\n① Site URL 填 http://localhost:3000\n② Additional Redirect URLs 增加 http://localhost:3000/auth/callback\n然后点 Save'
+      hint = `👉 请去 Supabase → Authentication → URL Configuration：\n① Site URL 填 ${origin}\n② Additional Redirect URLs 点 Add，填入 ${origin}/auth/callback\n③ 右上角点 Save（按钮很隐蔽！必须点一下）\n\n⚠️ 注意：当前浏览器地址栏端口不是 3000，就不能填 3000！要和本页面保持一致。`
     }
 
     setError(msg)
@@ -75,7 +83,7 @@ export default function LoginForm() {
         email: email.trim(),
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
+          emailRedirectTo: `${origin}/auth/callback`,
           data: username.trim() ? { username: username.trim() } : undefined,
         },
       })
@@ -105,10 +113,10 @@ export default function LoginForm() {
     try {
       const { error } = await supabase.auth.signInWithOtp({
         email: email.trim(),
-        options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+        options: { emailRedirectTo: `${origin}/auth/callback` },
       })
       if (error) throw error
-      setSuccessMsg('已发送登录链接到你的邮箱（请检查垃圾邮件）。点击邮件链接即可直接登录。\n\n如未收到邮件，请去 Supabase → Authentication → URL Configuration 把 Site URL 改为 http://localhost:3000 并保存。')
+      setSuccessMsg(`已发送登录链接到你的邮箱（请检查垃圾邮件）。点击邮件链接即可直接登录。\n\n如未收到邮件，请去 Supabase → Authentication → URL Configuration 把 Site URL 改为 ${origin} 并保存。`)
     } catch (err: any) {
       console.error('[MagicLink 错误]', err)
       formatError(err)
@@ -124,7 +132,7 @@ export default function LoginForm() {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'github',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo: `${origin}/auth/callback`,
           scopes: 'read:user user:email',
         },
       })
@@ -157,12 +165,17 @@ export default function LoginForm() {
       </button>
 
       <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-[11px] leading-relaxed text-amber-800">
-        <div className="mb-1 font-semibold">📌 GitHub 登录前，必须在 Supabase 做这 3 步：</div>
+        <div className="mb-1 font-semibold">
+          📌 GitHub 登录前，必须在 Supabase 做这 3 步（⚠️ 当前浏览器运行在 <code className="rounded bg-white/70 px-1">{origin}</code>，所以必须严格用下面的值）：
+        </div>
         <ol className="list-decimal space-y-0.5 pl-4">
-          <li>Authentication → Providers → GitHub → 开启 Enabled，填 Client ID + Secret → Save</li>
-          <li>Authentication → URL Configuration → Site URL 填 <code className="rounded bg-white/70 px-1">http://localhost:3000</code></li>
-          <li>Additional Redirect URLs 添加 <code className="rounded bg-white/70 px-1">http://localhost:3000/auth/callback</code> → Save</li>
+          <li>Authentication → Providers → GitHub → 开启 Enabled，填 Client ID + Secret → <b>底部点 Save</b></li>
+          <li>Authentication → URL Configuration → Site URL 填 <code className="rounded bg-white/70 px-1 font-mono">{origin}</code></li>
+          <li>Additional Redirect URLs 点 Add → 填入 <code className="rounded bg-white/70 px-1 font-mono">{origin}/auth/callback</code> → <b>右上角点 Save</b></li>
         </ol>
+        <div className="mt-2 rounded-lg bg-white/70 p-2 leading-relaxed">
+          💡 <b>做完后，在本页按 Ctrl+Shift+R 强制刷新一次</b>再点 GitHub 登录，否则浏览器会用旧缓存。
+        </div>
       </div>
 
       <div className="flex items-center gap-3 text-xs text-slate-400">
