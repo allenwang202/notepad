@@ -1,6 +1,8 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+export const dynamic = 'force-dynamic'
+
 export async function middleware(request: NextRequest) {
   // ✅ 防御 1：环境变量没配（Vercel Env 没加）时，直接放行不崩溃
   const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -16,7 +18,6 @@ export async function middleware(request: NextRequest) {
   // ✅ 创建一个可变的 response（Vercel 官方推荐写法：先 clone 再 mutate，兼容性最好）
   let response: NextResponse = NextResponse.next({
     request: {
-      // 用可迭代版本展开 headers，避免部分 Edge Runtime 兼容性报错
       headers: new Headers(request.headers),
     },
   })
@@ -29,34 +30,16 @@ export async function middleware(request: NextRequest) {
         },
         set(name: string, value: string, options: CookieOptions) {
           try {
-            // 写 request cookie（让本请求下游能读到）
-            request.cookies.set({
-              name,
-              value,
-              ...options,
-            })
-            // 写 response cookie（让浏览器保存）
-            response.cookies.set({
-              name,
-              value,
-              ...options,
-            })
+            request.cookies.set({ name, value, ...options })
+            response.cookies.set({ name, value, ...options })
           } catch (e) {
             console.error(`[middleware] cookies.set(${name}) 异常：`, e)
           }
         },
         remove(name: string, options: CookieOptions) {
           try {
-            request.cookies.set({
-              name,
-              value: '',
-              ...options,
-            })
-            response.cookies.set({
-              name,
-              value: '',
-              ...options,
-            })
+            request.cookies.set({ name, value: '', ...options })
+            response.cookies.set({ name, value: '', ...options })
           } catch (e) {
             console.error(`[middleware] cookies.remove(${name}) 异常：`, e)
           }
@@ -75,14 +58,12 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // 排除静态资源 + 边缘调试路径（sfo1:: 等 Vercel 边缘 trace 路径不会进 middleware）
     '/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
-  // ✅ 防御 3：强制 Node.js runtime，避免 Edge Runtime 下 @supabase/ssr 的 crypto/Web API 兼容问题
+  // ✅ 防御 3：强制 Node.js runtime，避免 Edge Runtime 下 crypto/Web API 兼容问题
   runtime: 'nodejs',
   unstable_allowDynamic: [
     '**/node_modules/@supabase/**',
     '**/node_modules/@supabase/ssr/**',
   ],
 }
-
