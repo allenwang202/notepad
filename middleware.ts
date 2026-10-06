@@ -2,65 +2,87 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
-  let response = NextResponse.next({
+  // ✅ 防御 1：环境变量没配（Vercel Env 没加）时，直接放行不崩溃
+  const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    console.warn(
+      '[middleware] ⚠️ NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY 未配置，跳过 Supabase session 刷新。'
+        + ' 请前往 Vercel → Project → Settings → Environment Variables 添加这 2 个变量后 Redeploy。'
+    )
+    return NextResponse.next()
+  }
+
+  // ✅ 创建一个可变的 response（Vercel 官方推荐写法：先 clone 再 mutate，兼容性最好）
+  let response: NextResponse = NextResponse.next({
     request: {
-      headers: request.headers,
+      // 用可迭代版本展开 headers，避免部分 Edge Runtime 兼容性报错
+      headers: new Headers(request.headers),
     },
   })
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
+  try {
+    const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       cookies: {
         get(name: string) {
           return request.cookies.get(name)?.value
         },
         set(name: string, value: string, options: CookieOptions) {
-          request.cookies.set({
-            name,
-            value,
-            ...options,
-          })
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
-          })
-          response.cookies.set({
-            name,
-            value,
-            ...options,
-          })
+          try {
+            // 写 request cookie（让本请求下游能读到）
+            request.cookies.set({
+              name,
+              value,
+              ...options,
+            })
+            // 写 response cookie（让浏览器保存）
+            response.cookies.set({
+              name,
+              value,
+              ...options,
+            })
+          } catch (e) {
+            console.error(`[middleware] cookies.set(${name}) 异常：`, e)
+          }
         },
         remove(name: string, options: CookieOptions) {
-          request.cookies.set({
-            name,
-            value: '',
-            ...options,
-          })
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
-          })
-          response.cookies.set({
-            name,
-            value: '',
-            ...options,
-          })
+          try {
+            request.cookies.set({
+              name,
+              value: '',
+              ...options,
+            })
+            response.cookies.set({
+              name,
+              value: '',
+              ...options,
+            })
+          } catch (e) {
+            console.error(`[middleware] cookies.remove(${name}) 异常：`, e)
+          }
         },
       },
-    }
-  )
+    })
 
-  await supabase.auth.getUser()
+    // ✅ 防御 2：getUser() 内部任何异常（Token 过期、篡改、Supabase 超时）都不影响页面加载
+    await supabase.auth.getUser()
+  } catch (err) {
+    console.error('[middleware] supabase.auth.getUser() 异常（已忽略，继续放行请求）：', err)
+  }
 
   return response
 }
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    // 排除静态资源 + 边缘调试路径（sfo1:: 等 Vercel 边缘 trace 路径不会进 middleware）
+    '/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+  ],
+  // ✅ 防御 3：强制 Node.js runtime，避免 Edge Runtime 下 @supabase/ssr 的 crypto/Web API 兼容问题
+  runtime: 'nodejs',
+  unstable_allowDynamic: [
+    '**/node_modules/@supabase/**',
+    '**/node_modules/@supabase/ssr/**',
   ],
 }
+
