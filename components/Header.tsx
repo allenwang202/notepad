@@ -3,17 +3,34 @@ import { createClient } from '@/lib/supabase/server'
 import HeaderClient from './HeaderClient'
 
 export default async function Header() {
-  const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
+  let user = null
   let profile = null
-  if (user) {
-    const { data } = await supabase
-      .from('profiles')
-      .select('username, avatar_url')
-      .eq('id', user.id)
-      .single()
-    profile = data
+
+  try {
+    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+      const supabase = createClient()
+      const { data: userRes } = await supabase.auth.getUser()
+      user = userRes?.user ?? null
+
+      if (user) {
+        try {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('username, avatar_url')
+            .eq('id', user.id)
+            .single()
+          if (!error && data) profile = data
+        } catch (e) {
+          console.warn('[Header.tsx] 拉取 profile 异常，降级为空：', e)
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[Header.tsx] supabase 异常，降级成未登录 Header：', e)
+    user = null
+    profile = null
   }
 
   return (
