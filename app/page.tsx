@@ -6,23 +6,40 @@ import Link from 'next/link'
 
 export const revalidate = 0
 
+type EnvDiagItem = { name: string; raw: string; ok: boolean; len: number; first10: string; masked: string }
+
+function diagEnv(name: string): EnvDiagItem {
+  const raw = process.env[name] ?? ''
+  const len = raw.length
+  const ok = len > 0
+  const first10 = raw.slice(0, 10)
+  let masked = '(空字符串)'
+  if (len > 0) masked = len <= 10 ? raw.replace(/./g, 'X') : `${raw.slice(0, 6)}***${raw.slice(-4)}`
+  return { name, raw, ok, len, first10, masked }
+}
+
 export default async function Home() {
   let messages: MessageWithProfile[] = []
   let user = null
   let currentProfile = null
-  let errorBanner: { title: string; tips: string[] } | null = null
+  let errorBanner: { title: string; tips: string[]; diagBox?: { label: string; items: EnvDiagItem[] } } | null = null
 
   try {
     const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
     const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    const envDiag = [diagEnv('NEXT_PUBLIC_SUPABASE_URL'), diagEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY')]
+    console.warn('[page.tsx ENV-DIAG] Server Component 读到环境变量：', envDiag.map(e => `${e.name}=${e.ok ? '✅OK:'+e.masked : '❌空/缺失'} (len=${e.len})`).join(' | '))
 
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
       errorBanner = {
         title: '⚠️ 未检测到 Supabase 环境变量，当前无法加载留言',
         tips: [
-          'Vercel 部署：前往 Vercel → Project → Settings → Environment Variables，添加 NEXT_PUBLIC_SUPABASE_URL 和 NEXT_PUBLIC_SUPABASE_ANON_KEY，然后 Redeploy。',
+          '【开发者排错用】下方"🔍 服务端诊断面板"里直接显示了页面实际读到的值，复制给我即可定位。',
+          'Vercel 部署：前往 Vercel → Project → Settings → Environment Variables，确认 2 个 Key 名称拼写完全正确（注意是单数 _KEY，不是 _KEYS！）。',
+          'Vercel 部署：Edit 每个 Key，确认 Value 不是空、末尾没多空格、Environment 勾选包含 Production，然后 Redeploy（取消勾选 Use existing Build Cache）。',
           '本地开发：在项目根目录创建 .env.local 文件，填入上述 2 个变量（可参考 .env.local.example），然后重启 npm run dev。',
         ],
+        diagBox: { label: '🔍 服务端诊断面板（复制下方内容）', items: envDiag },
       }
     } else {
       const supabase = createClient()
@@ -107,11 +124,25 @@ export default async function Home() {
       </section>
 
       {errorBanner && (
-        <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-yellow-50 p-5 shadow-sm">
-          <p className="text-base font-bold text-amber-800">{errorBanner.title}</p>
-          <ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm leading-relaxed text-amber-700">
-            {errorBanner.tips.map((t) => <li key={t}>{t}</li>)}
-          </ul>
+        <div className="space-y-3">
+          <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-yellow-50 p-5 shadow-sm">
+            <p className="text-base font-bold text-amber-800">{errorBanner.title}</p>
+            <ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm leading-relaxed text-amber-700">
+              {errorBanner.tips.map((t) => <li key={t}>{t}</li>)}
+            </ul>
+          </div>
+          {errorBanner.diagBox && (
+            <div className="rounded-2xl border border-slate-300 bg-slate-900 p-4 text-[13px] font-mono leading-relaxed text-slate-100 shadow-inner">
+              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-300">
+                {errorBanner.diagBox.label} → 把下面 4 行完整复制给 Trae
+              </p>
+              <pre className="whitespace-pre-wrap break-all">
+{errorBanner.diagBox.items.map(item =>
+  `🔎 ${item.name}\n   ├─ 空值 / 缺失:   ${item.ok ? '否 ✅' : '是 ❌'}\n   ├─ 长度(字符):   ${item.len}\n   ├─ 前 10 字符:  ${JSON.stringify(item.first10)}\n   └─ 脱敏显示:     ${item.masked}\n`
+).join('\n')}
+              </pre>
+            </div>
+          )}
         </div>
       )}
 

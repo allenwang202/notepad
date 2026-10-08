@@ -11,6 +11,15 @@ export function createClient() {
   const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
   const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
+  function mask(v: string | undefined) {
+    if (!v) return '(空)'
+    return v.length <= 10 ? v.replace(/./g, 'X') : `${v.slice(0, 6)}***${v.slice(-4)}`
+  }
+
+  // Runtime 诊断：不管空不空都打印脱敏值，方便在 Vercel Runtime 日志确认注入情况
+  console.info(
+    `[lib/supabase ENV-DIAG] NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL ? '✅ len='+SUPABASE_URL.length : '❌ 空'} ${mask(SUPABASE_URL)} | NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY ? '✅ len='+SUPABASE_ANON_KEY.length : '❌ 空'} ${mask(SUPABASE_ANON_KEY)}`
+  )
   if (!SUPABASE_URL) console.warn(ENV_MISSING_WARN('NEXT_PUBLIC_SUPABASE_URL'))
   if (!SUPABASE_ANON_KEY) console.warn(ENV_MISSING_WARN('NEXT_PUBLIC_SUPABASE_ANON_KEY'))
 
