@@ -45,18 +45,12 @@ export default async function Home() {
       const supabase = createClient()
 
       const [messagesRes, userRes] = await Promise.all([
+        // 🟢 第一次查询：只查 messages，不嵌套 profiles，不依赖外键
         supabase
           .from('messages')
-          .select(`
-            id,
-            user_id,
-            content,
-            created_at,
-            updated_at,
-            profiles ( username, avatar_url )
-          `)
+          .select(`id, user_id, content, created_at, updated_at`)
           .order('created_at', { ascending: false })
-          .returns<MessageWithProfile[]>(),
+          .limit(200),
         supabase.auth.getUser(),
       ])
 
@@ -80,7 +74,35 @@ export default async function Home() {
           }
         }
       } else {
-        messages = messagesRes.data || []
+        const rawMessages = (messagesRes.data as any[]) || []
+        if (rawMessages.length === 0) {
+          messages = []
+        } else {
+          // 🟢 收集所有 user_id 去重，第二次查询 profiles
+          const userIds = Array.from(new Set(rawMessages.map(m => m.user_id)))
+          const { data: profiles, error: pfErr } = await supabase
+            .from('profiles')
+            .select('id, username, avatar_url')
+            .in('id', userIds)
+
+          if (pfErr) {
+            console.warn('[page.tsx] 拉取 profiles 失败，降级为空：', pfErr)
+          }
+          const pfMap = new Map<string, { username: string | null; avatar_url: string | null }>()
+          if (!pfErr && profiles) {
+            for (const p of profiles) pfMap.set(p.id, { username: p.username, avatar_url: p.avatar_url })
+          }
+
+          // 🟢 在 JS 里手动拼 profiles 到对应 message
+          messages = rawMessages.map(m => ({
+            id: m.id,
+            user_id: m.user_id,
+            content: m.content,
+            created_at: m.created_at,
+            updated_at: m.updated_at,
+            profiles: pfMap.get(m.user_id) ?? { username: null, avatar_url: null },
+          })) as MessageWithProfile[]
+        }
       }
 
       user = userRes?.data?.user ?? null

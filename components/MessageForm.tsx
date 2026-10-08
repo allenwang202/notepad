@@ -26,16 +26,33 @@ export default function MessageForm({ user, profile }: Props) {
     setError(null)
 
     try {
-      const { error } = await supabase
-        .from('messages')
-        .insert({ content: content.trim(), user_id: user.id })
+      // 🟢 显式再拿一次 session 用户，防止 cookie 过期而 props 仍是旧值
+      const { data: authData, error: authErr } = await supabase.auth.getUser()
+      if (authErr || !authData.user) throw new Error('登录状态已过期，请先重新登录')
+      const uid = authData.user.id
 
-      if (error) throw error
+      // 🟢 INSERT + .select()：强制 NOT NULL / RLS 等错误抛出来，不吞错
+      const { error, status, statusText } = await supabase
+        .from('messages')
+        .insert({ content: content.trim(), user_id: uid })
+        .select('id')
+
+      if (error) {
+        console.error('[MessageForm] 插入 messages 失败：', { status, statusText, error })
+        throw error
+      }
 
       setContent('')
       router.refresh()
     } catch (err: any) {
-      setError(err.message || '发布失败，请重试')
+      const msg = err?.message || '发布失败，请重试'
+      let detail = msg
+      if (/row level|policy/i.test(msg)) {
+        detail = '权限拒绝：当前用户无法写入留言（可能是登录状态失效，请重新登录）'
+      } else if (/not null|user_id/i.test(msg)) {
+        detail = '数据库字段缺失，请刷新页面重新登录后再试'
+      }
+      setError(detail)
     } finally {
       setSubmitting(false)
     }
